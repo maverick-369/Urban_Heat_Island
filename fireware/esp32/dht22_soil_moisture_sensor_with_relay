@@ -29,8 +29,8 @@ DHT dht(DHT_PIN, DHTTYPE);
 WebServer server(80);
 
 // ------------------- WIFI -------------------
-const char* ssid = "GridMats phone";
-const char* password = "PotHoleRaja";
+const char* ssid = "your wifi name";
+const char* password = "pass";
 
 // ------------------- SENSOR VARIABLES -------------------
 float lastTemp = 0, lastHum = 0;
