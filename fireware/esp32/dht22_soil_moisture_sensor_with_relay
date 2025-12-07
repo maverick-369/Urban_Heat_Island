@@ -1,3 +1,14 @@
+/**
+ * ESP32 Sensor Server
+ * --------------------
+ * ➤ 4 Soil Moisture Sensors (Analog)
+ * ➤ 1 DHT22 Temperature + Humidity Sensor
+ * ➤ With replay
+ * ➤ REST API endpoint: /sensor
+ * ➤ Non-blocking periodic sensor reading
+ * Author: VAJRAMANASA PALGUNA H V
+ */
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
@@ -28,7 +39,7 @@ int avgMoisture = 0;
 
 // ------------------- TIMING -------------------
 unsigned long lastSensorRead = 0;
-const unsigned long SENSOR_INTERVAL = 5000;
+const unsigned long SENSOR_INTERVAL = 30000;
 
 // Relay timing (auto cycle)
 unsigned long relayLastToggle = 0;
