@@ -4,6 +4,7 @@
  * ➤ 4 Soil Moisture Sensors (Analog)
  * ➤ 1 DHT22 Temperature + Humidity Sensor
  * ➤ REST API endpoint: /sensor
+ * ➤ No relay
  * ➤ Non-blocking periodic sensor reading
  * Author: VAJRAMANASA PALGUNA H V
  */
