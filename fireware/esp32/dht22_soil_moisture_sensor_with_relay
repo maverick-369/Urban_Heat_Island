@@ -23,7 +23,7 @@
 #define SOIL4_PIN 35
 
 #define RELAY_PIN 25
-#define RELAY_ACTIVE_LOW 1   // Set 0 if your relay is ACTIVE HIGH
+#define RELAY_ACTIVE_LOW 0   // Set 0 if your relay is ACTIVE HIGH
 
 DHT dht(DHT_PIN, DHTTYPE);
 WebServer server(80);
