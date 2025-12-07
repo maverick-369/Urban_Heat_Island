@@ -30,7 +30,7 @@
 
 // Relay
 #define RELAY_PIN 27
-#define RELAY_ACTIVE_LOW 1
+#define RELAY_ACTIVE_LOW 0
 
 // ------------------- OBJECTS -------------------
 DHT dht1(DHT1_PIN, DHTTYPE);
