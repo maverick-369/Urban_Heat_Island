@@ -1,3 +1,14 @@
+/**
+ * ESP32 Sensor Server
+ * --------------------
+ * ➤ 4 Soil Moisture Sensors (Analog)
+ * ➤ 1 DHT22 Temperature + Humidity Sensor
+ * ➤ With replay
+ * ➤ REST API endpoint: /sensor
+ * ➤ Non-blocking periodic sensor reading
+ * Author: VAJRAMANASA PALGUNA H V
+ **/
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
@@ -27,8 +38,8 @@ DHT dht2(DHT2_PIN, DHTTYPE);
 WebServer server(80);
 
 // ------------------- WIFI -------------------
-const char* ssid = "GridMats phone";
-const char* password = "PotHoleRaja";
+const char* ssid = "your wifi name";
+const char* password = "pass";
 
 // ------------------- SENSOR VARIABLES -------------------
 float temp1, hum1;
