@@ -1,0 +1,681 @@
+<!--
+  GRIDMATS – Urban Heat Island (UHI) Dashboard
+  --------------------------------------------
+  A modern multi-panel monitoring dashboard for ESP32 IoT nodes deployed
+  in the Urban Heat Island (UHI) project. Displays:
+
+  • Temperature & Humidity (DHT22)
+  • Two soil moisture averages per panel (Avg1 = Soil1–2, Avg2 = Soil3–4)
+  • Outside temperature (Open-Meteo API)
+  • Air Quality Index (AQI) with gauge (OpenAQ / WAQI)
+  • Supports up to 4 ESP32 panels with real-time comparison
+  • Auto-refresh every 30 seconds
+  • Fully responsive, animated UI with panel selection controls
+
+  Expected ESP32 JSON:
+    { temperature, humidity, soil1, soil2, soil3, soil4 }
+
+  Author: GridMats / Maverick-369
+  Version: 1.0
+-->
+
+    
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GRIDMATS - Multi Panel Comparison Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      min-height: 100vh;
+    }
+    
+    .topbar { 
+      background: rgba(255,255,255,0.95);
+      padding: 20px 30px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .topbar img { 
+      height: 70px;
+      border-radius: 8px;
+    }
+    
+    h1 { 
+      font-size: 32px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .device-selector {
+      background: rgba(255,255,255,0.95);
+      padding: 16px 24px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .device-selector label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.3s ease;
+    }
+    
+    .device-selector label:hover {
+      background: rgba(102,126,234,0.1);
+    }
+    
+    .device-selector input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+
+    .compare-grid { 
+      display: grid;
+      gap: 20px;
+    }
+    
+    /* Responsive grid layouts */
+    .cols-1 { 
+      grid-template-columns: 1fr;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .cols-2 { 
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .cols-3 { 
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .cols-4 { 
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .column {
+      display: grid;
+      gap: 16px;
+      grid-template-rows: auto;
+    }
+
+    /* Single panel layout - larger cards */
+    .cols-1 .column {
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: auto auto;
+    }
+    
+    .cols-1 .panel.header {
+      grid-column: 1 / -1;
+    }
+    
+    .cols-1 .panel.aqi-panel {
+      grid-column: 1 / -1;
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.95);
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      text-align: center;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 140px;
+    }
+    
+    .panel:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+    }
+
+    .panel.header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-weight: 700;
+      font-size: 24px;
+      padding: 20px;
+      min-height: auto;
+    }
+
+    .title { 
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #555;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .value { 
+      font-size: 42px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+    }
+
+    /* Single panel - larger values */
+    .cols-1 .value {
+      font-size: 48px;
+    }
+    
+    .aqi-panel {
+      min-height: 300px;
+    }
+    
+    .aqi-container {
+      position: relative;
+      margin: 10px 0;
+    }
+    
+    canvas { 
+      width: 100% !important;
+      height: 180px !important;
+      margin: 10px 0;
+    }
+    
+    .cols-1 canvas {
+      height: 200px !important;
+    }
+    
+    .aqi-value-display {
+      font-size: 56px;
+      font-weight: 800;
+      margin: 10px 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .aqi-status {
+      margin-top: 10px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      display: inline-block;
+      font-size: 14px;
+    }
+    
+    .status-good { background: #00e400; color: #fff; }
+    .status-moderate { background: #ffff00; color: #333; }
+    .status-sensitive { background: #ff7e00; color: #fff; }
+    .status-unhealthy { background: #ff0000; color: #fff; }
+    .status-very-unhealthy { background: #8f3f97; color: #fff; }
+    .status-hazardous { background: #7e0023; color: #fff; }
+    
+    .loading {
+      color: #999;
+      font-style: italic;
+    }
+    
+    .error {
+      color: #ff4444;
+      font-size: 14px;
+    }
+    
+    .last-update {
+      text-align: center;
+      color: rgba(255,255,255,0.9);
+      font-size: 14px;
+      margin-top: 20px;
+      padding: 10px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+    }
+
+    .weather-details {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    .weather-details span {
+      background: rgba(102,126,234,0.1);
+      padding: 4px 10px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <img src="gridmats_logo.jpg" alt="GRIDMATS Logo">
+  <h1>Urban Heat Island - Smart Monitoring System</h1>
+</div>
+
+<div class="device-selector">
+  <label><input type="checkbox" class="esp-check" value="1" checked> Panel 1</label>
+  <label><input type="checkbox" class="esp-check" value="2"> Panel 2</label>
+  <label><input type="checkbox" class="esp-check" value="3"> Panel 3</label>
+  <label><input type="checkbox" class="esp-check" value="4"> Panel 4</label>
+</div>
+
+<div id="compareContainer" class="compare-grid cols-1"></div>
+
+<div class="last-update" id="lastUpdate">Loading data...</div>
+
+<script>
+
+/* -------------------------------------------
+   CONFIG
+------------------------------------------- */
+const ESP_MAP = {
+  1: "http://10.118.54.8/sensor",
+  2: "http://10.41.63.181/sensor",
+  3: "http://10./sensor",
+  4: "http://10.41.63.88/sensor"
+};
+
+// Vikhroli East, Mumbai coordinates
+const LAT = 19.1107;
+const LON = 72.9369;
+
+/* -------------------------------------------
+   AQI Gauge Drawing
+------------------------------------------- */
+function drawAQIGauge(canvas, value) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h - 20;
+  const radius = Math.min(w, h) * 0.35;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const segments = [
+    { max: 50, color: "#00e400", label: "Good" },
+    { max: 100, color: "#ffff00", label: "Moderate" },
+    { max: 150, color: "#ff7e00", label: "Sensitive" },
+    { max: 200, color: "#ff0000", label: "Unhealthy" },
+    { max: 300, color: "#8f3f97", label: "Very Unhealthy" },
+    { max: 500, color: "#7e0023", label: "Hazardous" }
+  ];
+
+  let start = Math.PI;
+  let end;
+  
+  segments.forEach(seg => {
+    end = start + (Math.PI * (seg.max / 500));
+    ctx.beginPath();
+    ctx.strokeStyle = seg.color;
+    ctx.lineWidth = 24;
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+    start = end;
+  });
+
+  // Draw needle
+  const clampedValue = Math.min(Math.max(value, 0), 500);
+  let ang = Math.PI + (Math.PI * (clampedValue / 500));
+  
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + radius * Math.cos(ang), cy + radius * Math.sin(ang));
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, 2 * Math.PI);
+  ctx.fillStyle = "#333";
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+}
+
+function getAQIStatus(aqi) {
+  if (aqi <= 50) return { text: "Good", class: "status-good" };
+  if (aqi <= 100) return { text: "Moderate", class: "status-moderate" };
+  if (aqi <= 150) return { text: "Unhealthy for Sensitive Groups", class: "status-sensitive" };
+  if (aqi <= 200) return { text: "Unhealthy", class: "status-unhealthy" };
+  if (aqi <= 300) return { text: "Very Unhealthy", class: "status-very-unhealthy" };
+  return { text: "Hazardous", class: "status-hazardous" };
+}
+
+/* -------------------------------------------
+   Column Builder
+------------------------------------------- */
+const compareContainer = document.getElementById("compareContainer");
+let columns = {};
+
+function createColumn(id) {
+  const root = document.createElement("div");
+  root.className = "column";
+
+  root.innerHTML = `
+    <div class="panel header">Panel ${id}</div>
+
+    <div class="panel">
+      <div class="title">Temperature</div>
+      <div class="value loading" id="t${id}">--°C</div>
+    </div>
+
+    <div class="panel">
+      <div class="title">Humidity</div>
+      <div class="value loading" id="h${id}">--%</div>
+    </div>
+
+    <div class="panel">
+      <div class="title">Moisture 1 (Avg)</div>
+      <div class="value loading" id="m1_${id}">--%</div>
+    </div>
+
+    <div class="panel">
+      <div class="title">Moisture 2 (Avg)</div>
+      <div class="value loading" id="m2_${id}">--%</div>
+    </div>
+
+    <div class="panel">
+      <div class="title">Outside Temperature (Vikhroli East)</div>
+      <div class="value loading" id="out${id}">--°C</div>
+      <div class="weather-details" id="weather${id}"></div>
+    </div>
+
+    <div class="panel aqi-panel">
+      <div class="title">Air Quality Index (Vikhroli East)</div>
+      <div class="aqi-container">
+        <canvas id="aqiCanvas_${id}" width="300" height="180"></canvas>
+        <div class="aqi-value-display loading" id="aqiVal_${id}">-- AQI</div>
+        <div class="aqi-status" id="aqiStatus_${id}"></div>
+      </div>
+    </div>
+  `;
+
+  return { id, root };
+}
+
+/* -------------------------------------------
+   API Fetchers - Using WeatherAPI.com (free)
+------------------------------------------- */
+async function fetchWeatherData() {
+  try {
+    // Using WeatherAPI.com - free tier, no API key needed for basic data
+    // Alternative: OpenWeatherMap, but requires API key
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia/Kolkata`;
+    
+    console.log("Fetching weather from:", url);
+    
+    const r = await fetch(url);
+    const j = await r.json();
+    
+    console.log("Weather response:", j);
+    
+    if (j.current) {
+      return {
+        temperature: j.current.temperature_2m,
+        humidity: j.current.relative_humidity_2m,
+        weatherCode: j.current.weather_code
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching weather:", err);
+    return null;
+  }
+}
+
+async function fetchAQIData() {
+  try {
+    // Using OpenAQ API (free, no key needed) - more reliable for Indian cities
+    const url = `https://api.openaq.org/v2/latest?coordinates=${LAT},${LON}&radius=10000&limit=1`;
+    
+    console.log("Fetching AQI from OpenAQ:", url);
+    
+    const r = await fetch(url);
+    const j = await r.json();
+    
+    console.log("AQI response:", j);
+    
+    if (j.results && j.results.length > 0) {
+      const result = j.results[0];
+      // Find PM2.5 measurement
+      const pm25 = result.measurements.find(m => m.parameter === 'pm25');
+      if (pm25) {
+        // Convert PM2.5 to AQI using US EPA formula
+        const aqi = calculateAQIFromPM25(pm25.value);
+        return Math.round(aqi);
+      }
+    }
+    
+    // Fallback to WAQI
+    return await fetchWAQI();
+  } catch (err) {
+    console.error("Error fetching from OpenAQ:", err);
+    return await fetchWAQI();
+  }
+}
+
+async function fetchWAQI() {
+  try {
+    const token = "fc312de77fab2f32101e6b7a3ecd2ad3e788ec8c";
+    const url = `https://api.waqi.info/feed/vikhroli/?token=${token}`;
+    
+    console.log("Fetching AQI from WAQI:", url);
+    
+    const r = await fetch(url);
+    const j = await r.json();
+    
+    console.log("WAQI response:", j);
+    
+    if (j.status === "ok" && j.data && j.data.aqi) {
+      return j.data.aqi;
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching WAQI:", err);
+    return null;
+  }
+}
+
+// Convert PM2.5 to AQI (US EPA standard)
+function calculateAQIFromPM25(pm25) {
+  const breakpoints = [
+    { cLow: 0, cHigh: 12.0, iLow: 0, iHigh: 50 },
+    { cLow: 12.1, cHigh: 35.4, iLow: 51, iHigh: 100 },
+    { cLow: 35.5, cHigh: 55.4, iLow: 101, iHigh: 150 },
+    { cLow: 55.5, cHigh: 150.4, iLow: 151, iHigh: 200 },
+    { cLow: 150.5, cHigh: 250.4, iLow: 201, iHigh: 300 },
+    { cLow: 250.5, cHigh: 500.4, iLow: 301, iHigh: 500 }
+  ];
+  
+  for (let bp of breakpoints) {
+    if (pm25 >= bp.cLow && pm25 <= bp.cHigh) {
+      return ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (pm25 - bp.cLow) + bp.iLow;
+    }
+  }
+  return 500; // Max AQI
+}
+
+async function fetchSensorFor(id) {
+  try {
+    const r = await fetch(ESP_MAP[id]);
+    return await r.json();
+  } catch (err) {
+    console.error(`Error fetching sensor ${id}:`, err);
+    return null;
+  }
+}
+
+function getWeatherDescription(code) {
+  const weatherCodes = {
+    0: '☀️ Clear',
+    1: '🌤️ Mainly Clear',
+    2: '⛅ Partly Cloudy',
+    3: '☁️ Cloudy',
+    45: '🌫️ Foggy',
+    48: '🌫️ Foggy',
+    51: '🌦️ Light Drizzle',
+    61: '🌧️ Light Rain',
+    80: '🌧️ Rain Showers'
+  };
+  return weatherCodes[code] || '🌤️';
+}
+
+/* -------------------------------------------
+   UI Management
+------------------------------------------- */
+function selectedIds() { 
+  return [...document.querySelectorAll(".esp-check:checked")].map(c => c.value);
+}
+
+function rebuildColumns() {
+  const ids = selectedIds();
+  compareContainer.innerHTML = "";
+  compareContainer.className = "compare-grid cols-" + Math.min(ids.length, 4);
+
+  ids.forEach(id => {
+    if (!columns[id]) columns[id] = createColumn(id);
+    compareContainer.appendChild(columns[id].root);
+  });
+  
+  updateAll();
+}
+
+/* -------------------------------------------
+   Update Loop
+------------------------------------------- */
+async function updateAll() {
+  const ids = selectedIds();
+  if (ids.length === 0) return;
+
+  console.log("Updating all panels...");
+  
+  // Fetch shared data once
+  const weatherData = await fetchWeatherData();
+  const aqi = await fetchAQIData();
+  
+  console.log("Weather data:", weatherData, "AQI:", aqi);
+
+  for (const id of ids) {
+    const s = await fetchSensorFor(id);
+    
+    // Update sensor data if available
+    if (s) {
+      const avg1 = (s.soil1 + s.soil2) / 2;
+      const avg2 = (s.soil3 + s.soil4) / 2;
+
+      const tempEl = document.getElementById("t" + id);
+      const humEl = document.getElementById("h" + id);
+      const m1El = document.getElementById("m1_" + id);
+      const m2El = document.getElementById("m2_" + id);
+      
+      if (tempEl) {
+        tempEl.innerText = s.temperature.toFixed(1) + "°C";
+        tempEl.classList.remove("loading");
+      }
+      if (humEl) {
+        humEl.innerText = s.humidity.toFixed(1) + "%";
+        humEl.classList.remove("loading");
+      }
+      if (m1El) {
+        m1El.innerText = avg1.toFixed(1) + "%";
+        m1El.classList.remove("loading");
+      }
+      if (m2El) {
+        m2El.innerText = avg2.toFixed(1) + "%";
+        m2El.classList.remove("loading");
+      }
+    }
+
+    // Update outside temperature and weather
+    const outEl = document.getElementById("out" + id);
+    const weatherEl = document.getElementById("weather" + id);
+    if (outEl && weatherEl) {
+      if (weatherData) {
+        outEl.innerText = weatherData.temperature.toFixed(1) + "°C";
+        outEl.classList.remove("loading");
+        
+        weatherEl.innerHTML = `
+          <span>💧 ${weatherData.humidity}%</span>
+          <span>${getWeatherDescription(weatherData.weatherCode)}</span>
+        `;
+      } else {
+        outEl.innerText = "N/A";
+        outEl.classList.add("error");
+      }
+    }
+
+    // Update AQI
+    const aqiValEl = document.getElementById("aqiVal_" + id);
+    const aqiCanvas = document.getElementById("aqiCanvas_" + id);
+    const aqiStatusEl = document.getElementById("aqiStatus_" + id);
+    
+    if (aqiValEl && aqiCanvas && aqiStatusEl) {
+      if (aqi !== null) {
+        aqiValEl.innerText = aqi + " AQI";
+        aqiValEl.classList.remove("loading");
+        
+        drawAQIGauge(aqiCanvas, aqi);
+        
+        const status = getAQIStatus(aqi);
+        aqiStatusEl.innerText = status.text;
+        aqiStatusEl.className = "aqi-status " + status.class;
+      } else {
+        aqiValEl.innerText = "N/A";
+        aqiValEl.classList.add("error");
+        aqiStatusEl.innerText = "Data unavailable";
+        aqiStatusEl.className = "aqi-status";
+      }
+    }
+  }
+  
+  // Update last update time
+  const now = new Date();
+  document.getElementById("lastUpdate").innerText = 
+    `Last updated: ${now.toLocaleTimeString()} | Location: Vikhroli East, Mumbai | Next update in 30 seconds`;
+}
+
+/* -------------------------------------------
+   INIT
+------------------------------------------- */
+rebuildColumns();
+updateAll();
+setInterval(updateAll, 30000);
+
+document.querySelectorAll(".esp-check").forEach(cb => {
+  cb.addEventListener("change", rebuildColumns);
+});
+
+</script>
+</body>
+</html>
