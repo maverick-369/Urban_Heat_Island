@@ -1,0 +1,205 @@
+<!--
+  GRIDMATS – Single-Panel Smart Monitoring Dashboard
+  -------------------------------------------------
+  Web dashboard for real-time monitoring of a single ESP32 node.
+
+  Shows:
+    • Temperature (DHT22)
+    • Humidity (DHT22)
+    • Moisture Group 1 (Soil Sensor 1)
+    • Moisture Group 2 (Soil Sensor 2)
+    • Live line charts for temperature, humidity, and moisture trends
+
+  Data Source:
+    ESP32 REST endpoint →  http://<esp32_ip>/sensor
+    JSON structure expected:
+      {
+        "temperature": <float>,
+        "humidity": <float>,
+        "soil1": <percentage>,
+        "soil2": <percentage>
+      }
+
+  Refresh Rate:
+    • Fetches new data every 30 seconds
+
+  Author:
+    GridMats / Maverick-369
+-->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GRIDMATS Smart Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; background:
+#eef1f5; padding:20px; }
+    .header { display:flex; align-items:center; margin-bottom:25px; }
+    .header img { height:60px; margin-right:20px; }
+    .header h1 { font-size:32px; margin:0; font-weight:700; }
+
+    .grid {
+      display:grid;
+      grid-template-columns: repeat(4, 250px);
+      gap:20px;
+      margin-bottom:40px;
+    }
+
+    .card {
+      background:white;
+      padding:20px;
+      border-radius:14px;
+      text-align:center;
+      box-shadow:0 3px 8px rgba(0,0,0,0.12);
+      min-height:170px;
+    }
+
+    .title { font-size:20px; font-weight:bold; margin-bottom:10px; }
+    .value { font-size:38px; font-weight:bold; }
+
+    .graph-box {
+      background:white;
+      border-radius:14px;
+      box-shadow:0 3px 10px rgba(0,0,0,0.12);
+      width:32%;
+      height:280px;
+      padding:20px;
+    }
+
+    .tv-frame-container {
+      display:flex;
+      justify-content:space-between;
+      margin-top:40px;
+      gap:20px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <img src="gridmats_logo.jpg">
+    <h1>Smart Monitoring Dashboard</h1>
+  </div>
+
+  <!-- SENSOR GRID -->
+  <div class="grid">
+    <div class="card"><div class="title">Temperature</div><div class="value" id="t1">--</div></div>
+    <div class="card"><div class="title">Moisture Group 1</div><div class="value" id="m1">--</div></div>
+    <div class="card"><div class="title">Humidity</div><div class="value" id="h1">--</div></div>
+    <div class="card"><div class="title">Moisture Group 2</div><div class="value" id="m2">--</div></div>
+  </div>
+
+  <!-- GRAPHS -->
+  <div class="tv-frame-container">
+    <div class="graph-box"><canvas id="tempChart"></canvas></div>
+    <div class="graph-box"><canvas id="humChart"></canvas></div>
+    <div class="graph-box"><canvas id="moistureChart"></canvas></div>
+  </div>
+
+<script>
+// =====================================================
+// CONFIG
+// =====================================================
+const ESP32_URL = "http://10.41.63.20/sensor";  // YOUR ESP32 IP (correct)
+
+// Arrays to store chart history
+let labels = [];
+let temp1Data = [];
+let hum1Data = [];
+let m1Data = [];
+let m2Data = [];
+
+// =====================================================
+// CHARTS
+// =====================================================
+const tempChart = new Chart(document.getElementById("tempChart"), {
+  type:"line",
+  data:{
+    labels,
+    datasets:[ { label:"Temperature (°C)", borderColor:"red", data:temp1Data, borderWidth:2 } ]
+  },
+  options:{ responsive:true, maintainAspectRatio:false }
+});
+
+const humChart = new Chart(document.getElementById("humChart"), {
+  type:"line",
+  data:{
+    labels,
+    datasets:[ { label:"Humidity (%)", borderColor:"blue", data:hum1Data, borderWidth:2 } ]
+  },
+  options:{ responsive:true, maintainAspectRatio:false }
+});
+
+const moistureChart = new Chart(document.getElementById("moistureChart"), {
+  type:"line",
+  data:{
+    labels,
+    datasets:[
+      { label:"Moisture G1 (%)", borderColor:"green", data:m1Data, borderWidth:2 },
+      { label:"Moisture G2 (%)", borderColor:"brown", data:m2Data, borderWidth:2 }
+    ]
+  },
+  options:{ responsive:true, maintainAspectRatio:false }
+});
+
+// =====================================================
+// ESP32 DATA FETCH
+// =====================================================
+async function fetchESP32(){
+  try {
+    const res = await fetch(ESP32_URL);
+    const d = await res.json();
+
+    console.log("ESP32 DATA:", d);
+
+    // ---------------------
+    // PUSH values to graph arrays
+    // ---------------------
+    labels.push("");
+    temp1Data.push(d.temperature);   // FIXED
+    hum1Data.push(d.humidity);       // FIXED
+    m1Data.push(d.soil1);            // FIXED
+    m2Data.push(d.soil2);            // FIXED
+
+    // Keep max 50 points
+    if (labels.length > 50){
+      labels.shift();
+      temp1Data.shift();
+      hum1Data.shift();
+      m1Data.shift();
+      m2Data.shift();
+    }
+
+    // ---------------------
+    // UPDATE UI cards
+    // ---------------------
+    document.getElementById("t1").innerText = d.temperature.toFixed(1) + "°C";
+    document.getElementById("h1").innerText = d.humidity.toFixed(1) + "%";
+    document.getElementById("m1").innerText = d.soil1 + "%";
+    document.getElementById("m2").innerText = d.soil2 + "%";
+
+    // ---------------------
+    // REFRESH charts
+    // ---------------------
+    tempChart.update();
+    humChart.update();
+    moistureChart.update();
+
+  } catch (e){
+    console.log("ESP32 Error:", e);
+  }
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+fetchESP32();
+setInterval(fetchESP32, 30000);
+
+</script>
+</body>
+</html>
