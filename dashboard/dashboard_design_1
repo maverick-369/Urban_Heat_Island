@@ -1,0 +1,291 @@
+<!--
+  GRIDMATS – Urban Heat Island (UHI) Smart Monitoring Dashboard
+  -------------------------------------------------------------
+  Real-time dashboard for ESP32-based environmental monitoring nodes.
+
+  FEATURES:
+  • Supports up to 4 ESP32 panels
+  • Displays Temperature, Humidity (DHT22)
+  • Two moisture averages per panel:
+        Avg1 = (Soil1 + Soil2) / 2
+        Avg2 = (Soil3 + Soil4) / 2
+  • Outside temperature via Open-Meteo API
+  • Air Quality Index (AQI) via AQICN API with gauge visualization
+  • Responsive multi-panel layout and selectable panels
+
+  DATA SOURCE:
+  Each ESP32 must expose:
+      GET http://<esp_ip>/sensor
+  Expected JSON:
+      { temperature, humidity, soil1, soil2, soil3, soil4 }
+
+  REFRESH:
+  • Sensor, AQI, outside temperature → every 30 seconds
+
+  CUSTOMIZATION:
+  • Update ESP_MAP to change device IPs
+  • UI auto-adjusts based on selected panels
+
+  AUTHOR: GridMats / Maverick-369
+  VERSION: 1.0
+-->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GRIDMATS - Multi Panel Comparison Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body { font-family: Arial; background:#eef1f5; margin:0; padding:20px; }
+    .topbar { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+    .topbar img { height:56px; }
+    h1 { margin:0; font-size:26px; }
+
+    .device-selector {
+      background:#fff; padding:10px 14px; border-radius:10px;
+      box-shadow:0 3px 8px rgba(0,0,0,0.06);
+      display:flex; gap:12px; align-items:center;
+      margin-bottom:14px;
+    }
+
+    .compare-grid { display:grid; gap:18px; }
+    .cols-1 { grid-template-columns: repeat(1,1fr); }
+    .cols-2 { grid-template-columns: repeat(2,1fr); }
+    .cols-3 { grid-template-columns: repeat(3,1fr); }
+    .cols-4 { grid-template-columns: repeat(4,1fr); }
+
+    .panel {
+      background:#fff; padding:14px; border-radius:12px;
+      box-shadow:0 3px 10px rgba(0,0,0,0.08);
+      text-align:center; margin-bottom:14px;
+    }
+
+    .title { font-weight:700; margin-bottom:8px; }
+    .value { font-size:28px; font-weight:800; }
+    canvas { width:100% !important; height:160px !important; }
+  </style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <img src="gridmats_logo.jpg">
+  <h1>Urban Heat Island - Smart Monitoring System</h1>
+</div>
+
+<div class="device-selector">
+  <label><input type="checkbox" class="esp-check" value="1" checked> Panel 1</label>
+  <label><input type="checkbox" class="esp-check" value="2"> Panel 2</label>
+  <label><input type="checkbox" class="esp-check" value="3"> Panel 3</label>
+  <label><input type="checkbox" class="esp-check" value="4"> Panel 4</label>
+</div>
+
+<div id="compareContainer" class="compare-grid cols-1"></div>
+
+<script>
+
+/* -------------------------------------------
+   CONFIG
+------------------------------------------- */
+const ESP_MAP = {
+  1: "http://10.118.54.8/sensor",
+  2: "http://10.41.63.181/sensor",
+  3: "http://10./sensor",
+  4: "http://10.41.63.88/sensor"
+};
+
+const LAT = 19.1142, LON = 72.9358;
+const AQICN_TOKEN = "fc312de77fab2f32101e6b7a3ecd2ad3e788ec8c";
+
+/* -------------------------------------------
+   AQI Gauge Drawing
+------------------------------------------- */
+function drawAQIGauge(canvas, value) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h - 10;
+  const radius = Math.min(w, h) * 0.7;
+
+  ctx.clearRect(0,0,w,h);
+
+  const segments = [
+    { max:50,   color:"#00e400" },
+    { max:100,  color:"#ffff00" },
+    { max:150,  color:"#ff7e00" },
+    { max:200,  color:"#ff0000" },
+    { max:300,  color:"#8f3f97" },
+    { max:500,  color:"#7e0023" }
+  ];
+
+  let start = Math.PI, end;
+  segments.forEach(seg => {
+    end = start + (Math.PI * (seg.max / 500));
+    ctx.beginPath();
+    ctx.strokeStyle = seg.color;
+    ctx.lineWidth = 18;
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+    start = end;
+  });
+
+  let ang = Math.PI + (Math.PI * (value / 500));
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + radius * Math.cos(ang), cy + radius * Math.sin(ang));
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 10, 0, 2*Math.PI);
+  ctx.fillStyle="#555";
+  ctx.fill();
+}
+
+/* -------------------------------------------
+   Column Builder
+------------------------------------------- */
+const compareContainer = document.getElementById("compareContainer");
+let columns = {};
+
+function createColumn(id) {
+  const root = document.createElement("div");
+  root.className = "column";
+
+  root.innerHTML = `
+    <div class="panel"><div class="title">Panel ${id}</div></div>
+
+    <div class="panel"><div class="title">Temperature</div>
+      <div class="value" id="t${id}">--</div>
+    </div>
+
+    <div class="panel"><div class="title">Humidity</div>
+      <div class="value" id="h${id}">--</div>
+    </div>
+
+    <div class="panel"><div class="title">Moisture 1 (Avg)</div>
+      <div class="value" id="m1_${id}">--</div>
+    </div>
+
+    <div class="panel"><div class="title">Moisture 2 (Avg)</div>
+      <div class="value" id="m2_${id}">--</div>
+    </div>
+
+    <div class="panel"><div class="title">Outside Temperature</div>
+      <div class="value" id="out${id}">--</div>
+    </div>
+
+    <div class="panel">
+      <div class="title">Air Quality Index (AQI)</div>
+      <canvas id="aqiCanvas_${id}" width="260" height="150"></canvas>
+      <div class="value" id="aqiVal_${id}">--</div>
+    </div>
+  `;
+
+  return { id, root };
+}
+
+/* -------------------------------------------
+   API Fetchers
+------------------------------------------- */
+async function fetchOutsideTemp() {
+  try {
+    const r = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current_weather=true`
+    );
+    const j = await r.json();
+    return j.current_weather.temperature;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAQI() {
+  try {
+    const r = await fetch(
+      `https://api.waqi.info/feed/geo:${LAT};${LON}/?token=${AQICN_TOKEN}`
+    );
+    const j = await r.json();
+    return j.data.aqi;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSensorFor(id) {
+  try {
+    const r = await fetch(ESP_MAP[id]);
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+/* -------------------------------------------
+   UI Management
+------------------------------------------- */
+function selectedIds(){ 
+  return [...document.querySelectorAll(".esp-check:checked")].map(c=>c.value);
+}
+
+function rebuildColumns() {
+  const ids = selectedIds();
+  compareContainer.innerHTML = "";
+  compareContainer.className = "compare-grid cols-" + ids.length;
+
+  ids.forEach(id => {
+    if(!columns[id]) columns[id] = createColumn(id);
+    compareContainer.appendChild(columns[id].root);
+  });
+}
+
+/* -------------------------------------------
+   Update Loop
+------------------------------------------- */
+async function updateAll() {
+  const ids = selectedIds();
+  if(ids.length === 0) return;
+
+  const outsideTemp = await fetchOutsideTemp();
+  const aqi = await fetchAQI();
+
+  for (const id of ids) {
+    const s = await fetchSensorFor(id);
+    if (!s) continue;
+
+    let avg1 = (s.soil1 + s.soil2) / 2;
+    let avg2 = (s.soil3 + s.soil4) / 2;
+
+    document.getElementById("t"+id).innerText = s.temperature.toFixed(1)+"°C";
+    document.getElementById("h"+id).innerText = s.humidity.toFixed(1)+"%";
+
+    document.getElementById("m1_"+id).innerText = avg1.toFixed(1)+"%";
+    document.getElementById("m2_"+id).innerText = avg2.toFixed(1)+"%";
+
+    if(outsideTemp !== null)
+      document.getElementById("out"+id).innerText = outsideTemp.toFixed(1)+"°C";
+
+    if(aqi !== null) {
+      document.getElementById("aqiVal_"+id).innerText = aqi;
+      drawAQIGauge(document.getElementById("aqiCanvas_"+id), aqi);
+    }
+  }
+}
+
+/* -------------------------------------------
+   INIT
+------------------------------------------- */
+rebuildColumns();
+updateAll();
+setInterval(updateAll, 30000);
+
+document.querySelectorAll(".esp-check").forEach(cb=>{
+  cb.addEventListener("change", rebuildColumns);
+});
+
+</script>
+</body>
+</html>
